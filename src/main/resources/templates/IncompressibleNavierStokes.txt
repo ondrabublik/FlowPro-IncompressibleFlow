@@ -1,0 +1,20 @@
+model = IncompressibleNavierStokes
+
+dimension = 2
+
+isFlowViscous =   % true / false
+%%% for viscous flow (isFlowViscous = true) either reynolds and prandtl, 
+%%% or viscosity and conductivity must be defined
+reynolds =        % Reynolds number
+%viscosity =      % dynamic viscosity
+%conductivity =   % thermal conductivity
+
+%%% inlet
+%attackAngle =   % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+VIn =     % inlet velocity
+
+%%% outlet
+pOut =        % outlet pressure
+
+coeffsPhys = 0,1,1
