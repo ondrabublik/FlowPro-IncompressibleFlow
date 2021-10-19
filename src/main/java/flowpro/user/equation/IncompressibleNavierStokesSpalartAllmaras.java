@@ -1,3 +1,5 @@
+
+
 package flowpro.user.equation;
 
 import flowpro.api.ElementData;
@@ -30,6 +32,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
     protected double tRef;
     protected double rho;
     protected double eta;
+    protected double v;
 
     // inlet boundary condition
     protected boolean isInletSupersonic;
@@ -43,9 +46,9 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
     protected double pOut; // pressure
 
     double gravityAcceleration;
-    
+
     double vtIn; // turbulence intensity at the inlet
-    
+
     // parameters of turbulence model
     double sigma;
     double cb1;
@@ -96,14 +99,15 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         VIn = props.getDoubleArray("VIn");
 
         // density
-        if (props.containsKey("density")){
+        if (props.containsKey("density")) {
             rho = props.getDouble("density");
         }
-        
-        if (props.containsKey("viscosity")){
+
+        if (props.containsKey("viscosity")) {
             eta = props.getDouble("viscosity");
+            v = 1/rho; // dimensionalless kinematic viskosity 
         }
-        
+
         // other reference values
         if (props.containsKey("lRef")) {
             lRef = props.getDouble("lRef");
@@ -117,8 +121,8 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         }
         velocityRef = Math.sqrt(velocityRef);
         tRef = lRef / velocityRef;
-        pRef = rho*velocityRef*velocityRef;
-        
+        pRef = rho * velocityRef * velocityRef;
+
         for (int d = 0; d < dim; ++d) {
             VIn[d] /= velocityRef;
         }
@@ -129,17 +133,17 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             throw new IOException("outlet boundary pressure condition is not specified");
         }
 
-        if (props.containsKey("reynolds")){
+        if (props.containsKey("reynolds")) {
             Re = props.getDouble("reynolds");
         } else {
-            Re = rho*velocityRef*lRef/eta;
+            Re = rho * velocityRef * lRef / eta;
         }
-        
+
         System.out.println("Reynolds number " + Re);
-        
+
         // turbulence in inlet
         vtIn = props.getDouble("vtIn");
-        
+
         // parameters of the turbulence model
         sigma = props.getDouble("sigma");
         cb1 = props.getDouble("cb1");
@@ -178,12 +182,12 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         switch (TT) {
             case (BoundaryType.WALL):
             case (BoundaryType.INVISCID_WALL):
-                
+
                 f[0] = 0;
                 for (int d = 0; d < dim; d++) {
                     f[d + 1] = WR[0] * n[d];
                 }
-                
+
                 // for ALE
                 double V = 0;
                 for (int d = 0; d < dim; d++) {
@@ -201,48 +205,48 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
                 break;
 
             default: // vnitrni stena
-//                double[] fL = convectiveFlux(WL, n, elem);
-//                double[] fR = convectiveFlux(WR, n, elem);
-//                double maxEigenValue = Math.max(maxEigenvalue(WL, elem), maxEigenvalue(WR, elem));
-//                for (int j = 0; j < nEqs; j++) {
-//                    f[j] = (fL[j] + fR[j] - maxEigenValue * (WR[j] - WL[j])) / 2;
+                double[] fL = convectiveFlux(WL, n, elem);
+                double[] fR = convectiveFlux(WR, n, elem);
+                double maxEigenValue = Math.max(maxEigenvalue(WL, elem), maxEigenvalue(WR, elem));
+                for (int j = 0; j < nEqs; j++) {
+                    f[j] = (fL[j] + fR[j] - maxEigenValue * (WR[j] - WL[j])) / 2;
+                }
+
+//                double c2 = 1000;
+//                double[] Wstar = new double[nEqs];
+//                // pressure
+//                double VnL = 0;
+//                double VnR = 0;
+//                for (int d = 0; d < dim; ++d) {
+//                    VnL += WL[d + 1] * n[d];
+//                    VnR += WR[d + 1] * n[d];
 //                }
-
-                double c2 = 1000;
-                double[] Wstar = new double[nEqs];
-                // pressure
-                double VnL = 0;
-                double VnR = 0;
-                for (int d = 0; d < dim; ++d) {
-                    VnL += WL[d + 1] * n[d];
-                    VnR += WR[d + 1] * n[d];
-                }
-                double beta = (VnL + VnR) / 2;
-                double alfa = Math.sqrt(beta * beta + 4 * c2);
-                double dp = WR[0] - WL[0];
-                double du = VnR - VnL;
-                double us = (VnL + VnR) / 2 - dp / alfa - beta / (2 * alfa) * du;
-                double ps = (WL[0] + WR[0]) / 2 - c2 / alfa * du + beta / (2 * alfa) * dp;
-                double vts = (WL[dim + 1] + WR[dim + 1])/2;
-
-                // tangential velocity
-                double[] vt = new double[dim];
-                if (us > 0) {
-                    for (int d = 0; d < dim; d++) {
-                        vt[d] = WL[d + 1] - VnL * n[d];
-                    }
-                } else {
-                    for (int d = 0; d < dim; d++) {
-                        vt[d] = WR[d + 1] - VnR * n[d];
-                    }
-                }
-
-                Wstar[0] = ps;
-                for (int d = 0; d < dim; d++) {
-                    Wstar[d + 1] = us * n[d] + vt[d];
-                }
-                Wstar[dim + 1] = vts;
-                f = convectiveFlux(Wstar, n, elem);
+//                double beta = (VnL + VnR) / 2;
+//                double alfa = Math.sqrt(beta * beta + 4 * c2);
+//                double dp = WR[0] - WL[0];
+//                double du = VnR - VnL;
+//                double us = (VnL + VnR) / 2 - dp / alfa - beta / (2 * alfa) * du;
+//                double ps = (WL[0] + WR[0]) / 2 - c2 / alfa * du + beta / (2 * alfa) * dp;
+//                double vts = (WL[dim + 1] + WR[dim + 1]) / 2;
+//
+//                // tangential velocity
+//                double[] vt = new double[dim];
+//                if (us > 0) {
+//                    for (int d = 0; d < dim; d++) {
+//                        vt[d] = WL[d + 1] - VnL * n[d];
+//                    }
+//                } else {
+//                    for (int d = 0; d < dim; d++) {
+//                        vt[d] = WR[d + 1] - VnR * n[d];
+//                    }
+//                }
+//
+//                Wstar[0] = ps;
+//                for (int d = 0; d < dim; d++) {
+//                    Wstar[d + 1] = us * n[d] + vt[d];
+//                }
+//                Wstar[dim + 1] = vts;
+//                f = convectiveFlux(Wstar, n, elem);
                 break;
         }
 
@@ -263,7 +267,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             f[d + 1] = W[d + 1] * V + W[0] * n[d];
         }
         f[dim + 1] = W[dim + 1] * V;
-        
+
         return f;
     }
 
@@ -286,7 +290,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         double[] stress = new double[dim * dim];
         for (int d = 0; d < dim; ++d) {
             for (int f = 0; f < dim; ++f) {
-                stress[dim * d + f] = (velocityJac[dim * d + f] + velocityJac[dim * f + d]) / 2;
+                stress[dim * d + f] = velocityJac[dim * d + f] + velocityJac[dim * f + d];
             }
         }
 
@@ -296,19 +300,19 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             vtDer[d] = dW[d * nEqs + dim + 1];
         }
 
-        double xi = vt;
+        double xi = vt/v;
         double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
         double mut = rho * vt * fv1; // nejsem si jisty tim rho !!!!!!!!!!!
-        
+
         double[] flux = new double[nEqs];
         flux[0] = 0;
         for (int d = 0; d < dim; d++) {
             for (int f = 0; f < dim; f++) {
                 flux[f + 1] += (1 + mut) * stress[dim * d + f] * n[d] / Re;
             }
-            flux[dim + 1] += 1 / (Re * sigma) * (1 + vt) * vtDer[d] * n[d];
+            flux[dim + 1] += 1 / (Re * sigma) * (v + vt) * vtDer[d] * n[d];
         }
-        
+
         return flux;
     }
 
@@ -328,7 +332,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
 
     @Override
     public double[] sourceTerm(double[] W, double[] dW, ElementData elem) { // zdrojovy clen
-        
+
         double[] velocityJac = new double[dim * dim];
         for (int d = 0; d < dim; ++d) {
             for (int f = 0; f < dim; ++f) {
@@ -350,9 +354,8 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
 
         double D = elem.currentWallDistance;
 
-        double xi = vt; // vt/v 
+        double xi = vt/v;
         double ft2 = 0; //ct3*Math.exp(-ct4*xi*xi);
-        double ft1 = 0;
         double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
         double fv2 = 1 - xi / (1 + xi * fv1);
         double Om = rotationMagnitude(velocityJac);
@@ -365,7 +368,10 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         double fw = g * Math.pow((1 + Math.pow(cw3, 6.0)) / (Math.pow(g, 6.0) + Math.pow(cw3, 6.0)), 1.0 / 6);
 
         double[] source = new double[nEqs];
-        source[dim + 1] = limitDestruction(1 / Re * cb2 * vtDerMag + cb1 * (1 - ft2) * S * vt - 1 / Re * (cw1 * fw - cb1 / (ka * ka) * ft2) * (vt / D) * (vt / D)); // + r*Re*ft1*dU*dU
+        source[dim + 1] = cb1 * (1 - ft2) * S * vt; // production
+        source[dim + 1] -= 1 / Re * (cw1 * fw - cb1 / (ka * ka) * ft2) * (vt / D) * (vt / D); // destruction
+        source[dim + 1] += 1 / Re * cb2 * vtDerMag;
+        source[dim + 1] = limitDestruction(source[dim + 1]);
         return source;
     }
 
@@ -430,6 +436,40 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         return W[0];
     }
 
+    protected double[] viscousStressTensor(double[] W, double[] dW) {
+		double[] velocityJac = new double[dim * dim];
+        for (int d = 0; d < dim; ++d) {
+            for (int f = 0; f < dim; ++f) {
+                velocityJac[dim * d + f] = dW[f * nEqs + d + 1];
+            }
+        }
+
+        // stress tensor calculation
+        double[] stress = new double[dim * dim];
+        for (int d = 0; d < dim; ++d) {
+            for (int f = 0; f < dim; ++f) {
+                stress[dim * d + f] = (velocityJac[dim * d + f] + velocityJac[dim * f + d]);
+            }
+        }
+		
+		return stress;
+	}
+
+    @Override
+	public double[] stressVector(double[] W, double[] dW, double[] normal) {	
+		double p = pressure(W);
+		double[] viscousStress = viscousStressTensor(W, dW);
+		double[] stressVector = new double[dim];
+		for (int d = 0; d < dim; ++d) {
+			stressVector[d] -= p * normal[d];
+			for (int f = 0; f < dim; ++f) {
+				stressVector[d] += 1 / Re * viscousStress[d * dim + f] * normal[f];
+			}
+		}		
+		
+		return stressVector;
+	}
+
     @Override
     public double maxEigenvalue(double[] W, ElementData elem) {
         limite(W);
@@ -490,7 +530,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
     public double[] getResults(double[] W, double[] dW, double[] X, String name) {
         switch (name) {
             case "pressure":
-                return new double[]{pRef*W[0]};
+                return new double[]{pRef * W[0]};
 
             case "xVelocity":
                 return new double[]{velocityRef * W[1]};
@@ -524,15 +564,25 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
                 return div;
 
             case "mut":
-                double xi = max(W[dim + 1],0); // vt/v
+                double xi = max(W[dim + 1], 0); // vt/v
                 double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
-                return new double[]{W[dim + 1]*fv1};    
+                return new double[]{W[dim + 1] * fv1};
+
+            case "vorticity":
+                if (dim == 2) {
+                    double dvdx = dW[2];
+                    double dudy = dW[4];
+                    return new double[] {velocityRef / lRef * (dvdx - dudy)};
+                } else {
+                    throw new UnsupportedOperationException("quantity \"" + name
+                            + "\" is only available in two dimensions");
+                }    
                 
             default:
                 throw new UnsupportedOperationException("undefined value " + name);
         }
     }
-    
+
     public double max(double a, double b) {
         if (a > b) {
             return a;
@@ -554,7 +604,7 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         if (U.length == 4) {
             rotMag = Math.abs(U[1] - U[2]);
         } else if (U.length == 9) {
-            rotMag = Math.sqrt((U[0*dim + 1] - U[1*dim + 0]) * (U[0*dim + 1] - U[1*dim + 0]) + (U[0*dim + 2] - U[2*dim + 0]) * (U[0*dim + 2] - U[2*dim + 0]) + (U[2*dim + 1] - U[1*dim + 2]) * (U[2*dim + 1] - U[1*dim + 2]));
+            rotMag = Math.sqrt((U[0 * dim + 1] - U[1 * dim + 0]) * (U[0 * dim + 1] - U[1 * dim + 0]) + (U[0 * dim + 2] - U[2 * dim + 0]) * (U[0 * dim + 2] - U[2 * dim + 0]) + (U[2 * dim + 1] - U[1 * dim + 2]) * (U[2 * dim + 1] - U[1 * dim + 2]));
         }
         return rotMag;
     }

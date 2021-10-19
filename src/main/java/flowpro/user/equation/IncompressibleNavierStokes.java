@@ -16,7 +16,13 @@ public class IncompressibleNavierStokes implements Equation {
         static final int OUTLET = -3;
         static final int INVISCID_WALL = -4;
     }
-
+	
+	protected enum InletType {
+		VELOCITY, PARABOLA, PARABOLA2
+	}
+	
+	protected InletType inletType;
+		
     protected int dim;
     protected int nEqs;
     protected boolean isDiffusive;
@@ -32,18 +38,16 @@ public class IncompressibleNavierStokes implements Equation {
     protected double eta;
 
     // inlet boundary condition
-    protected boolean isInletSupersonic;
-    // subsonic inlet boundary condition 
+    // inlet boundary condition 
     protected final double pIn0 = 1; // static pressure
-    protected final double rhoIn0 = 1; // static density
-    // supersonic inlet boundary condition
+    protected final double rhoIn0 = 1; // density
     protected double[] VIn;
 
     // outlet boundary condition
     protected double pOut; // pressure
 
     double gravityAcceleration;
-
+		
     @Override
     public int dim() {
         return dim;
@@ -73,7 +77,7 @@ public class IncompressibleNavierStokes implements Equation {
         gravityAcceleration = 9.81;
 
         isDiffusive = props.getBoolean("isFlowViscous");
-
+                       
         // reference values from inlet
         VIn = props.getDoubleArray("VIn");
 
@@ -91,6 +95,22 @@ public class IncompressibleNavierStokes implements Equation {
             lRef = props.getDouble("lRef");
         } else {
             lRef = 1;
+        }
+		
+		if (props.containsKey("inletType")) {
+			String type = props.getString("inletType").toUpperCase();
+			
+            if (InletType.VELOCITY.name().toLowerCase().equals(type)) {
+				inletType = InletType.VELOCITY;
+			} else if (InletType.PARABOLA.name().toLowerCase().equals(type)) {
+				inletType = InletType.PARABOLA;
+			} else if (InletType.PARABOLA2.name().toLowerCase().equals(type)) {
+				inletType = InletType.PARABOLA2;
+			} else {
+				throw new IOException("unknown inlet type \'" + type + "\'");
+			}
+        } else {
+            inletType = InletType.VELOCITY;
         }
 
         velocityRef = 0;
@@ -148,6 +168,7 @@ public class IncompressibleNavierStokes implements Equation {
                 }
                 
                 // for ALE
+                //System.out.println(elem.meshVelocity[1]);
                 double V = 0;
                 for (int d = 0; d < dim; d++) {
                     V += elem.meshVelocity[d] * n[d];
@@ -169,6 +190,7 @@ public class IncompressibleNavierStokes implements Equation {
 //                double maxEigenValue = Math.max(maxEigenvalue(WL, elem), maxEigenvalue(WR, elem));
 //                for (int j = 0; j < nEqs; j++) {
 //                    f[j] = (fL[j] + fR[j] - maxEigenValue * (WR[j] - WL[j])) / 2;
+////					f[j] = (fL[j] + fR[j]) / 2;
 //                }
 
                 double c2 = 1000;
@@ -233,22 +255,7 @@ public class IncompressibleNavierStokes implements Equation {
 
     @Override
     public double[] diffusiveFlux(double[] W, double[] dW, double[] n, ElementData elem) {
-
-        double[] velocityJac = new double[dim * dim];
-        for (int d = 0; d < dim; ++d) {
-            for (int f = 0; f < dim; ++f) {
-                velocityJac[dim * d + f] = dW[f * nEqs + d + 1];
-            }
-        }
-
-        // stress tensor calculation
-        double[] stress = new double[dim * dim];
-        for (int d = 0; d < dim; ++d) {
-            for (int f = 0; f < dim; ++f) {
-                stress[dim * d + f] = (velocityJac[dim * d + f] + velocityJac[dim * f + d]) / 2;
-            }
-        }
-
+        double[] stress = viscousStressTensor(W, dW);
         double[] flux = new double[nEqs];
         flux[0] = 0;
         for (int d = 0; d < dim; ++d) {
@@ -286,10 +293,9 @@ public class IncompressibleNavierStokes implements Equation {
             case (BoundaryType.WALL):
                 if (isDiffusive) {
                     double[] u = elem.meshVelocity;
+                    //System.out.println(u[0] + " " + u[1]);
                     WR[0] = WL[0];
-                    for (int d = 0; d < dim; d++) {
-                        WR[d + 1] = u[d];
-                    }
+					System.arraycopy(u, 0, WR, 1, dim);
                 } else {
                     WR[0] = WL[0];
                     double nu = 0;
@@ -313,10 +319,28 @@ public class IncompressibleNavierStokes implements Equation {
                 break;
 
             case (BoundaryType.INLET):
-                WR[0] = WL[0];
+                WR[0] = WL[0];				
                 for (int d = 0; d < dim; ++d) {
                     WR[d + 1] = VIn[d];
                 }
+//				double height = 0.41;
+//				double y = elem.currentX[1];
+//				WR[1] = 1.5 * y * (height-y) / (height*height/4);
+//				if (inletType == InletType.VELOCITY) {
+//					for (int d = 0; d < dim; ++d) {
+//						WR[d + 1] = VIn[d];
+//					}
+//				} else {
+//					double height = 0.41;
+//					double y = elem.currentX[1];
+//					WR[1] = 1.5 * y * (height-y) / (height*height/4);
+//				}
+//				
+//				double t = elem.currentT * tRef;
+//				if (inletType == InletType.PARABOLA2 && t < 2.0) {
+//					WR[1] *= (1 - Math.cos(Math.PI / 2 * t)) / 2;
+//				}
+				
                 break;
 
             case (BoundaryType.OUTLET):
@@ -333,10 +357,44 @@ public class IncompressibleNavierStokes implements Equation {
     public double pressure(double[] W) {
         return W[0];
     }
+	
+	protected double[] viscousStressTensor(double[] W, double[] dW) {
+		double[] velocityJac = new double[dim * dim];
+        for (int d = 0; d < dim; ++d) {
+            for (int f = 0; f < dim; ++f) {
+                velocityJac[dim * d + f] = dW[f * nEqs + d + 1];
+            }
+        }
+
+        // stress tensor calculation
+        double[] stress = new double[dim * dim];
+        for (int d = 0; d < dim; ++d) {
+            for (int f = 0; f < dim; ++f) {
+                stress[dim * d + f] = (velocityJac[dim * d + f] + velocityJac[dim * f + d]);
+            }
+        }
+		
+		return stress;
+	}
 
     @Override
+	public double[] stressVector(double[] W, double[] dW, double[] normal) {	
+		double p = pressure(W);
+		double[] viscousStress = viscousStressTensor(W, dW);
+		double[] stressVector = new double[dim];
+		for (int d = 0; d < dim; ++d) {
+			stressVector[d] -= p * normal[d];
+			for (int f = 0; f < dim; ++f) {
+				stressVector[d] += 1 / Re * viscousStress[d * dim + f] * normal[f];
+			}
+		}		
+		
+		return stressVector;
+	}
+    
+    @Override
     public double maxEigenvalue(double[] W, ElementData elem) {
-        limite(W);
+//        limite(W);
         double u = Math.sqrt(W[1] * W[1] + W[2] * W[2]);
         return u;
     }
@@ -356,8 +414,8 @@ public class IncompressibleNavierStokes implements Equation {
         throw new UnsupportedOperationException("operation not supported");
     }
 
-    void limite(double[] W) {
-    }
+//    void limite(double[] W) {
+//    }
 
     @Override
     public boolean isIPFace(int TT) {
@@ -423,10 +481,19 @@ public class IncompressibleNavierStokes implements Equation {
             case "div":
                 double[] div = new double[1];
                 for (int i = 0; i < dim; i++) {
-                    div[0] = dW[nEqs * i + i + 1];
+                    div[0] += dW[nEqs * i + i + 1];
                 }
                 return div;
-
+            
+            case "vorticity":
+                if (dim == 2) {
+                    double dvdx = dW[2];
+                    double dudy = dW[nEqs + 1];
+                    return new double[] {velocityRef / lRef * (dvdx - dudy)};                
+                } else {
+                    throw new UnsupportedOperationException("quantity \"" + name
+                            + "\" is only available in two dimensions");
+                }
             default:
                 throw new UnsupportedOperationException("undefined value " + name);
         }
